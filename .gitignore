@@ -1,0 +1,24 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+# Django database
+db.sqlite3
+
+# Django migrations (optional — usually keep them in prod)
+# myapp/migrations/
+# BUT keep __init__.py in migrations folder if you ignore them
+
+# Virtual environment
+venv/
+.env
+
+# Node.js dependencies
+chatire-frontend/node_modules/
+
+# Vue build output
+chatire-frontend/dist/
+
+# System files
+.DS_Store
+Thumbs.db
