@@ -1,7 +1,22 @@
 <template>
-  <div class="container">
+  <div class="container-fluid">
     <div class="row">
-      <div class="col-sm-6 offset-3">
+
+      <!-- Chat History Sidebar -->
+      <div class="col-sm-3 border-right" style="height: 100vh; overflow-y: auto;">
+        <h5 class="p-2">Chat History</h5>
+        <ul class="list-group">
+          <li v-for="session in chatHistory" 
+              :key="session.uri"
+              class="list-group-item list-group-item-action"
+              @click="goToSession(session.uri)">
+            {{ session.name || session.uri }}
+          </li>
+        </ul>
+      </div>
+
+      <!-- Chat Window -->
+      <div class="col-sm-6 offset-0">
 
         <div v-if="sessionStarted" id="chat-container" class="card">
           <div class="card-header text-white text-center font-weight-bold subtle-blue-gradient">
@@ -18,7 +33,7 @@
                     </span>
                   </div>
                   <div class="col-sm-2">
-                    <img class="rounded-circle" :src="generateAvatar(message.user.username)"/>
+                    <img class="rounded-circle" :src="generateAvatar(message.user.username)" />
                   </div>
                 </template>
                 <template v-else>
@@ -37,28 +52,33 @@
 
           <div class="card-footer text-muted">
             <form @submit.prevent="postMessage">
-                <div class="row">
-                    <div class="col-sm-10">
-                        <input v-model="message" type="text" placeholder="Type a message" />
-                            </div>
-                            <div class="col-sm-2">
-                        <button class="btn btn-primary">Send</button>
-                    </div>
+              <div class="row">
+                <div class="col-sm-10">
+                  <input v-model="message" type="text" placeholder="Type a message" />
                 </div>
+                <div class="col-sm-2">
+                  <button class="btn btn-primary">Send</button>
+                </div>
+              </div>
             </form>
           </div>
         </div>
 
         <div v-else>
-          <h3 class="text-center">Welcome !</h3>
-          <br />
-          <p class="text-center">
+          <h3 class="text-center" >Welcome!</h3>
+          <br  />
+          <p class="text-center" >
             To start chatting with friends click on the button below, it'll start a new chat session
             and then you can invite your friends over to chat!
           </p>
-          <br />
-          <button @click="startChatSession" class="btn btn-primary btn-lg btn-block">Start Chatting</button>
+          <br  />
+          <button  
+                  @click="startChatSession" 
+                  class="btn btn-primary btn-lg btn-block">
+            Start Chatting
+          </button>
         </div>
+
       </div>
     </div>
   </div>
@@ -70,11 +90,16 @@ export default {
     return {
       sessionStarted: false,
       messages: [],
-      message: ''
+      message: '',
+      chatHistory: [],
+      currentUri: null, // <-- store URI here
+
     }
   },
 
   created () {
+    console.log("Chat.vue created  ", this.$route.fullPath)
+
     this.username = sessionStorage.getItem('username')
 
     // Setup headers for all requests
@@ -83,35 +108,56 @@ export default {
         xhr.setRequestHeader('Authorization', `Token ${sessionStorage.getItem('authToken')}`)
       }
     })
+    this.loadChatHistory()
 
     if (this.$route.params.uri) {
       this.joinChatSession()
     }
-
-    this.connectToWebSocket()
+    if (this.$route.params.uri) {
+      this.connectToWebSocket()
+      console.log(`Connected to chat session: ${this.$route.params.uri}`)
+    }
   },
+
+  mounted () {
+    console.log("Chat.vue mounted", this.$route.fullPath)
+    this.loadChatHistory()
+  },
+
     updated () {
   // Scroll to bottom of Chat window
   const chatBody = this.$refs.chatBody
   if (chatBody) {
     chatBody.scrollTop = chatBody.scrollHeight
     }
+
     },
 
   methods: {
     startChatSession () {
-      this.$.post('http://localhost:8000/api/chats/', (data) => {
-        alert("A new session has been created. You'll be redirected automatically.")
-        this.sessionStarted = true
-        this.$router.push(`/chats/${data.uri}/`)
-      })
-      .fail((response) => {
-        alert(response.responseText)
+      $.post({
+        url: 'http://localhost:8000/api/chats/',
+        contentType: 'application/json',
+        dataType: 'json',
+        success: (data) => {
+          this.$router.push(`/chats/${data.uri}/`).then(() => {
+            this.currentUri = data.uri; // save URI immediately
+            this.sessionStarted = true
+            this.loadChatHistory()
+            this.connectToWebSocket() // only now connect
+
+          })
+        }
       })
     },
 
     postMessage (event) {
       const data = {message: this.message}
+      const uri = this.currentUri || this.$route.params.uri; // prefer stored URI
+      if (!uri) {
+        alert("No active chat session!");
+        return;
+      }
 
       $.post(`http://localhost:8000/api/chats/${this.$route.params.uri}/messages/`, data, (data) => {
         this.message = '' // clear the message after sending
@@ -122,8 +168,11 @@ export default {
     },
 
     joinChatSession () {
-      const uri = this.$route.params.uri
-
+      const uri = this.currentUri || this.$route.params.uri; // prefer stored URI
+      if (!uri) {
+        console.error("❌ No URI for joining chat session")
+        return
+      }
       this.$.ajax({
         url: `http://localhost:8000/api/chats/${uri}/`,
         data: { username: this.username },
@@ -135,6 +184,7 @@ export default {
             // The user belongs/has joined the session
             this.sessionStarted = true
             this.fetchChatSessionHistory()
+            this.loadChatHistory()
           }
         }
       })
@@ -146,12 +196,19 @@ export default {
       })
     },
     connectToWebSocket () {
-      const websocket = new WebSocket(`ws://localhost:8001/ws/chat/${this.$route.params.uri}`)
+      const uri = this.currentUri || this.$route.params.uri
+      if (!uri) {
+        console.error("❌ No URI for WebSocket connection")
+        return
+      }
+
+      const websocket = new WebSocket(`ws://localhost:8001/ws/chat/${uri}`)
       websocket.onopen = this.onOpen
       websocket.onclose = this.onClose
       websocket.onmessage = this.onMessage
       websocket.onerror = this.onError
     },
+
 
     onOpen (event) {
       console.log('Connection opened.', event.data)
@@ -202,8 +259,18 @@ export default {
 
     // Return image as base64
     return canvas.toDataURL();
-  }
-
+  },
+    loadChatHistory () {
+    console.log("Loading chat history...")
+      $.get('http://localhost:8000/api/chats/history/', (data) => {
+        this.chatHistory = data
+      })
+    console.log("this.chatHistory", this.chatHistory)
+    },
+    goToSession (uri) {
+      this.$router.push({ name: 'Chat', params: { uri } })
+      this.joinChatSession()
+    }
   }
 }
 </script>

@@ -1,5 +1,5 @@
-from django.shortcuts import render
-
+from urllib import request
+from django.db.models import Q
 # Create your views here.
 
 from django.contrib.auth import get_user_model
@@ -8,6 +8,7 @@ from .models import (
 )
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from django.http import JsonResponse
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -26,6 +27,10 @@ class ChatSessionView(APIView):
         user = request.user
 
         chat_session = ChatSession.objects.create(owner=user)
+        ChatSessionMember.objects.create(
+            chat_session=chat_session,
+            user=user
+        )
 
         return Response({
             'status': 'SUCCESS', 'uri': chat_session.uri,
@@ -43,8 +48,11 @@ class ChatSessionView(APIView):
         chat_session = ChatSession.objects.get(uri=uri)
         owner = chat_session.owner
 
-        if owner != user:  # Only allow non owners join the room             chat_session.members.get_or_create(
-                user=user, chat_session=chat_session
+        if owner != user:  # Only allow non owners join the room
+            ChatSessionMember.objects.create(
+                chat_session=chat_session,
+                user=user
+            )
 
         owner = deserialize_user(owner)
         members = [
@@ -106,3 +114,14 @@ class ChatSessionMessageView(APIView):
             'message': message,
             'user': deserialize_user(user)
         })
+class ChatHistoryView(APIView):
+    def get(self, request, *args, **kwargs):
+        print("DEBUG user:", request.user)  # <- Add this
+
+        """Return chat history for the logged-in user."""
+        user = request.user
+        sessions = ChatSession.objects.filter(
+            Q(owner=user) | Q(members__user=user)
+        ).distinct()
+        data = [{'uri': s.uri, 'name': f"Chat with {', '.join(m.user.username for m in s.members.exclude(user=user))}"} for s in sessions]
+        return JsonResponse(data, safe=False)

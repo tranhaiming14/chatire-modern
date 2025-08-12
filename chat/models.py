@@ -38,6 +38,8 @@ class ChatSession(TrackableDateModel):
 
     owner = models.ForeignKey(User, on_delete=models.PROTECT)
     uri = models.URLField(default=_generate_unique_uri)
+    def __str__(self):
+        return f"ChatSession({self.uri})"
 
 
 class ChatSessionMessage(TrackableDateModel):
@@ -60,4 +62,9 @@ class ChatSessionMember(TrackableDateModel):
     chat_session = models.ForeignKey(
         ChatSession, related_name='members', on_delete=models.PROTECT
     )
-    user = models.ForeignKey(User, on_delete=models.PROTECT)
+    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="chat_history")  # NEW related_name
+    class Meta:
+        unique_together = ('chat_session', 'user')  # prevent duplicates
+
+    def __str__(self):
+        return f"{self.user.username} in {self.chat_session.uri}"
