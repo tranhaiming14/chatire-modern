@@ -7,7 +7,7 @@
         Add Friend
       </button>
       <br>
-      <button @click="showRequests = true" class="btn btn-warning btn-sm">
+      <button @click="showMailbox" class="btn btn-warning btn-sm">
         Mailbox ({{ friendRequests.length }})
       </button>
     </div>
@@ -93,29 +93,43 @@
     </div>
 
     <!-- Add Friend Modal -->
-    <div v-if="showAddFriendModal" class="modal-backdrop-custom">
+    <div v-if="showAddFriendModal" class="modal-backdrop-custom" @click.self="showAddFriendModal = false">
       <div class="modal-custom">
         <h5>Add Friend</h5>
-        <input v-model="friendUsername" class="form-control" placeholder="Enter username">
-        <button class="btn btn-primary mt-2" @click="sendFriendRequest">Send</button>
-        <button class="btn btn-secondary mt-2" @click="showAddFriendModal=false">Close</button>
+        <input 
+          v-model="friendUsername" 
+          class="form-control" 
+          placeholder="Enter username"
+          @keyup.enter="sendFriendRequest"
+        >
+        <div class="text-center">
+          <button class="btn btn-primary" @click="sendFriendRequest">Send Request</button>
+          <button class="btn btn-secondary" @click="showAddFriendModal = false">Cancel</button>
+        </div>
       </div>
     </div>
 
     <!-- Friend Requests Modal -->
-    <div v-if="showRequests" class="modal-backdrop-custom">
+    <div v-if="showRequests" class="modal-backdrop-custom" @click.self="showRequests = false">
       <div class="modal-custom">
         <h5>Friend Requests</h5>
-        <ul class="list-group">
-          <li v-for="req in friendRequests" :key="req.id" class="list-group-item d-flex justify-content-between align-items-center">
-            {{ req.from_user }}
-            <div>
-              <button class="btn btn-success btn-sm" @click="respondRequest(req.id, 'accept')">Accept</button>
-              <button class="btn btn-danger btn-sm" @click="respondRequest(req.id, 'decline')">Decline</button>
-            </div>
-          </li>
-        </ul>
-        <button class="btn btn-secondary mt-2" @click="showRequests=false">Close</button>
+        <div v-if="friendRequests.length === 0" class="text-center text-muted">
+          <p>No friend requests at the moment</p>
+        </div>
+        <div v-else>
+          <ul class="list-group">
+            <li v-for="req in friendRequests" :key="req.id" class="list-group-item d-flex justify-content-between align-items-center">
+              <strong>{{ req.from_user }}</strong>
+              <div>
+                <button class="btn btn-success btn-sm" @click="respondRequest(req.id, 'accept')">Accept</button>
+                <button class="btn btn-danger btn-sm" @click="respondRequest(req.id, 'decline')">Decline</button>
+              </div>
+            </li>
+          </ul>
+        </div>
+        <div class="text-center">
+          <button class="btn btn-secondary" @click="showRequests = false">Close</button>
+        </div>
       </div>
     </div>
 
@@ -342,8 +356,11 @@ export default {
     loadFriendRequests(){
       $.get('http://localhost:8000/api/friends/requests/', (data)=>{
         this.friendRequests = data;
-        this.showRequests=true;
       })
+    },
+    showMailbox(){
+      this.loadFriendRequests();
+      this.showRequests = true;
     },
     respondRequest(id, action){
       $.post({
@@ -462,5 +479,75 @@ li {
 .send-section {
   margin-bottom: -20px;
   padding-bottom: 10px;
+}
+
+/* Modal Overlay Styles */
+.modal-backdrop-custom {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1050;
+}
+
+.modal-custom {
+  background: white;
+  border-radius: 8px;
+  padding: 30px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: modalFadeIn 0.3s ease-out;
+}
+
+.modal-custom h5 {
+  margin-bottom: 20px;
+  color: #333;
+  text-align: center;
+  font-weight: 600;
+}
+
+.modal-custom .form-control {
+  margin-bottom: 15px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  padding: 10px;
+}
+
+.modal-custom .btn {
+  margin-right: 10px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+}
+
+.modal-custom .list-group {
+  margin-bottom: 20px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.modal-custom .list-group-item {
+  border-radius: 4px;
+  margin-bottom: 5px;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 </style>
