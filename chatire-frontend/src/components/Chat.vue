@@ -239,9 +239,9 @@ export default {
           if (user) {
             // The user belongs/has joined the session
             this.sessionStarted = true
+            this.connectToWebSocket() // ✅ ADD THIS LINE
             this.fetchChatSessionHistory()
             this.loadChatHistory()
-            this.connectToWebSocket() // ✅ ADD THIS LINE
           }
         }
       })
