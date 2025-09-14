@@ -1,7 +1,18 @@
 <template>
   <div class="container-fluid">
-    <div class="row">
 
+    <!-- Top-right control buttons -->
+    <div style="position: absolute; top: 10px; right: 10px; z-index: 1000;">
+      <button @click="showAddFriendModal = true" class="btn btn-secondary btn-sm mb-2">
+        Add Friend
+      </button>
+      <br>
+      <button @click="showRequests = true" class="btn btn-warning btn-sm">
+        Mailbox ({{ friendRequests.length }})
+      </button>
+    </div>
+
+    <div class="row">
       <!-- Chat History Sidebar -->
       <div class="col-sm-3 border-right" style="height: 100vh; overflow-y: auto;">
         <h5 class="p-2">Chat History</h5>
@@ -65,15 +76,14 @@
         </div>
 
         <div v-else>
-          <h3 class="text-center" >Welcome!</h3>
-          <br  />
-          <p class="text-center" >
+          <h3 class="text-center">Welcome!</h3>
+          <br>
+          <p class="text-center">
             To start chatting with friends click on the button below, it'll start a new chat session
             and then you can invite your friends over to chat!
           </p>
-          <br  />
-          <button  
-                  @click="startChatSession" 
+          <br>
+          <button @click="startChatSession" 
                   class="btn btn-primary btn-lg btn-block">
             Start Chatting
           </button>
@@ -81,6 +91,34 @@
 
       </div>
     </div>
+
+    <!-- Add Friend Modal -->
+    <div v-if="showAddFriendModal" class="modal-backdrop-custom">
+      <div class="modal-custom">
+        <h5>Add Friend</h5>
+        <input v-model="friendUsername" class="form-control" placeholder="Enter username">
+        <button class="btn btn-primary mt-2" @click="sendFriendRequest">Send</button>
+        <button class="btn btn-secondary mt-2" @click="showAddFriendModal=false">Close</button>
+      </div>
+    </div>
+
+    <!-- Friend Requests Modal -->
+    <div v-if="showRequests" class="modal-backdrop-custom">
+      <div class="modal-custom">
+        <h5>Friend Requests</h5>
+        <ul class="list-group">
+          <li v-for="req in friendRequests" :key="req.id" class="list-group-item d-flex justify-content-between align-items-center">
+            {{ req.from_user }}
+            <div>
+              <button class="btn btn-success btn-sm" @click="respondRequest(req.id, 'accept')">Accept</button>
+              <button class="btn btn-danger btn-sm" @click="respondRequest(req.id, 'decline')">Decline</button>
+            </div>
+          </li>
+        </ul>
+        <button class="btn btn-secondary mt-2" @click="showRequests=false">Close</button>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -93,7 +131,11 @@ export default {
       message: '',
       chatHistory: [],
       currentUri: null, // <-- store URI here
-
+      showAddFriendModal:false,
+      showRequests:false,
+      friendUsername:'',
+      friendRequests:[],
+      websocket: null
     }
   },
 
@@ -114,9 +156,9 @@ export default {
       this.joinChatSession()
     }
     if (this.$route.params.uri) {
-      this.connectToWebSocket()
       console.log(`Connected to chat session: ${this.$route.params.uri}`)
     }
+    this.loadFriendRequests()
   },
 
   mounted () {
@@ -185,6 +227,7 @@ export default {
             this.sessionStarted = true
             this.fetchChatSessionHistory()
             this.loadChatHistory()
+            this.connectToWebSocket() // ✅ ADD THIS LINE
           }
         }
       })
@@ -196,17 +239,24 @@ export default {
       })
     },
     connectToWebSocket () {
-      const uri = this.currentUri || this.$route.params.uri
+      const uri = this.currentUri || this.$route.params.uri;
       if (!uri) {
-        console.error("❌ No URI for WebSocket connection")
-        return
+        console.error("❌ No URI for WebSocket connection");
+        return;
       }
 
-      const websocket = new WebSocket(`ws://localhost:8001/ws/chat/${uri}`)
-      websocket.onopen = this.onOpen
-      websocket.onclose = this.onClose
-      websocket.onmessage = this.onMessage
-      websocket.onerror = this.onError
+      // Close existing connection if any
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+        console.log("🔌 Closing previous WebSocket connection...");
+        this.websocket.close();
+      }
+
+      // Create new connection
+      this.websocket = new WebSocket(`ws://localhost:8001/ws/chat/${uri}`);
+      this.websocket.onopen = this.onOpen;
+      this.websocket.onclose = this.onClose;
+      this.websocket.onmessage = this.onMessage;
+      this.websocket.onerror = this.onError;
     },
 
 
@@ -218,7 +268,7 @@ export default {
       console.log('Connection closed.', event.data)
 
       // Try and Reconnect after five seconds
-      setTimeout(this.connectToWebSocket, 5000)
+      //setTimeout(this.connectToWebSocket, 5000)
     },
 
     onMessage (event) {
@@ -268,11 +318,50 @@ export default {
     console.log("this.chatHistory", this.chatHistory)
     },
     goToSession (uri) {
+      this.currentUri = uri;
+
       this.$router.push({ name: 'Chat', params: { uri } })
       this.joinChatSession()
+      this.connectToWebSocket(); // ✅ now will replace old connection
+
+    },
+    searchUsers() {
+    $.get(`/api/friends/search/?q=${this.searchQuery}`, (data) => {
+      this.searchResults = data
+    })
+  },
+    sendFriendRequest(){
+      $.post({
+        url:'http://localhost:8000/api/friends/request/',
+        data: JSON.stringify({username:this.friendUsername}),
+        contentType:'application/json',
+        success:()=>{ alert('Request sent'); this.showAddFriendModal=false; },
+        error:(e)=>alert('Error: '+e.responseText)
+      })
+    },
+    loadFriendRequests(){
+      $.get('http://localhost:8000/api/friends/requests/', (data)=>{
+        this.friendRequests = data;
+        this.showRequests=true;
+      })
+    },
+    respondRequest(id, action){
+      $.post({
+        url:'http://localhost:8000/api/friends/respond/',
+        data: JSON.stringify({id, action}),
+        contentType:'application/json',
+        success:(res)=>{
+          if(res.chat_uri){
+            alert('Friend added! Private chat created.');
+            this.loadChatHistory();
+          }
+          this.loadFriendRequests();
+        }
+      })
     }
   }
-}
+
+  }
 </script>
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->

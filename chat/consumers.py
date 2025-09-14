@@ -24,7 +24,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def chat_message(self, event):
         # Send the event's message back to the WebSocket
-        print("🔥 WebSocket got event:   ")
+        print(f"🔥 WebSocket got event: {event}  ")
 
         await self.send(text_data=json.dumps({
             "message": event["message"]["message"],  # extract just the text

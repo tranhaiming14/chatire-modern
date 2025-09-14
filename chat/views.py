@@ -4,7 +4,7 @@ from django.db.models import Q
 
 from django.contrib.auth import get_user_model
 from .models import (
-    ChatSession, ChatSessionMember, ChatSessionMessage, deserialize_user
+    ChatSession, ChatSessionMember, ChatSessionMessage, deserialize_user, User, FriendRequest, Friendship
 )
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
@@ -14,6 +14,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
 from notifications.utils import notify
+from rest_framework.decorators import api_view, permission_classes
+from django.shortcuts import get_object_or_404
+
 from notifications import default_settings as notifs_settings
 import json
 
@@ -48,7 +51,7 @@ class ChatSessionView(APIView):
         chat_session = ChatSession.objects.get(uri=uri)
         owner = chat_session.owner
 
-        if owner != user:  # Only allow non owners join the room
+        if owner != user and not chat_session.members.filter(user=user).exists():  # Only allow non owners join the room
             ChatSessionMember.objects.create(
                 chat_session=chat_session,
                 user=user
@@ -125,3 +128,75 @@ class ChatHistoryView(APIView):
         ).distinct()
         data = [{'uri': s.uri, 'name': f"Chat with {', '.join(m.user.username for m in s.members.exclude(user=user))}"} for s in sessions]
         return JsonResponse(data, safe=False)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def send_friend_request(request):
+    username = request.data.get('username')
+    if username == request.user.username:
+        return Response({'error': 'You cannot add yourself'}, status=400)
+
+    to_user = get_object_or_404(User, username=username)
+
+    fr, created = FriendRequest.objects.get_or_create(
+        from_user=request.user,
+        to_user=to_user
+    )
+    if not created:
+        return Response({'error': 'Request already sent'}, status=400)
+    print(f"Friend request sent from {request.user.username} to {to_user.username}")
+    return Response({'status': 'SUCCESS', 'message': f'Friend request sent to {to_user.username}'})
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def list_friend_requests(request):
+    requests = FriendRequest.objects.filter(to_user=request.user, status='pending')
+    data = [{'id': r.id, 'from_user': r.from_user.username, 'created_at': r.created_at} for r in requests]
+    return Response(data)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def respond_friend_request(request):
+    fr_id = request.data.get('id')
+    action = request.data.get('action')  # 'accept' or 'decline'
+    fr = get_object_or_404(FriendRequest, id=fr_id, to_user=request.user)
+
+    if action == 'accept':
+        fr.status = 'accepted'
+        fr.save()
+
+        # Store friendship (avoid duplicates)
+        Friendship.objects.get_or_create(
+            user1=min(request.user, fr.from_user, key=lambda u: u.id),
+            user2=max(request.user, fr.from_user, key=lambda u: u.id)
+        )
+
+        # Create a private chat session
+        chat_session = ChatSession.objects.create(owner=request.user)
+        ChatSessionMember.objects.create(chat_session=chat_session, user=request.user)
+        ChatSessionMember.objects.create(chat_session=chat_session, user=fr.from_user)
+
+        return Response({'status': 'accepted', 'chat_uri': chat_session.uri})
+
+    elif action == 'decline':
+        fr.status = 'declined'
+        fr.save()
+        return Response({'status': 'declined'})
+
+    return Response({'error': 'Invalid action'}, status=400)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def list_friends(request):
+    friendships = Friendship.objects.filter(Q(user1=request.user) | Q(user2=request.user))
+    friends = []
+    for f in friendships:
+        if f.user1 == request.user:
+            friends.append(f.user2.username)
+        else:
+            friends.append(f.user1.username)
+    return Response(friends)
